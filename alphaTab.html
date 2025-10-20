@@ -291,7 +291,7 @@
     <template id="at-track-template">
       <div class="at-track">
         <div class="at-track-icon">
-          <i class="fas fa-guitar"></i>
+          <i class="fas fa-music"></i>
         </div>
 
         <div class="at-track-details">
@@ -307,7 +307,7 @@
 
       // get ?file=... from URL
       const params = new URLSearchParams(window.location.search);
-      const fileParam = params.get("file") || "We Have an Anchor.mxl"; //fallback
+      const fileParam = params.get("file") || "A Beautiful Life.mxl"; //fallback
       const fileURL = `https://alanwmueller.github.io/hymns/mxlFiles/${fileParam}`;
       //update page title (not used in Odoo embedd)
       document.title = fileParam.replace('.mxl', '');
@@ -529,6 +529,4 @@
       });
     </script>
   </body>
-
 </html>
-
