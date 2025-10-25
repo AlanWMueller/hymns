@@ -200,7 +200,31 @@
         background: rgba(64, 64, 255, 0.75);
         width: 3px;
       }
-
+      .at-popup {
+        position: absolute;
+        background: rgba(50, 50, 50, 0.9);
+          color: #fff;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 13px;
+        z-index: 2000;
+        opacity: 1;
+        transition: opacity 0.3s ease;
+        pointer-events: none;
+      }
+      .at-tooltip {
+        position: absolute;
+        background: rgba(0,0,0,0.85);
+        color: #fff;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        z-index: 2000;
+        white-space: nowrap;
+      }
       .at-highlight * {
         /* Defines the color of the music symbols when they are being played (svg) */
         fill: #0078ff;
@@ -314,6 +338,12 @@
       // initialize alphatab
       const settings = {
         file: fileURL,
+        display: {
+          resources: {
+            mainGlyphColor: "#000000",
+            secondaryGlyphColor: "#000000"
+          }
+        },
         player: {
           enablePlayer: true,
           soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/soundfont/sonivox.sf2",
@@ -334,32 +364,107 @@
       // track selector
       let activeTracks = [];
 
-      function createTrackItem(track) {
+      function createTrackItem(track, score) {
         const trackItem = document
           .querySelector("#at-track-template")
           .content.cloneNode(true).firstElementChild;
+
         trackItem.querySelector(".at-track-name").innerText = track.name;
+        track.active = true; // every track starts active
         trackItem.track = track;
+
+        trackItem.classList.add("active"); // initially show as active
+
         trackItem.onclick = (e) => {
           e.stopPropagation();
-          const idx = activeTracks.findIndex((t) => t.index === track.index);
-          if (idx >= 0) {
-            activeTracks.splice(idx,1);
-            trackItem.classList.remove("active");
-          } else {
-            activeTracks.push(track);
-            trackItem.classList.add("active");
+          // Prevent deactivating the last visible track
+          const visibleCount = score.tracks.filter(t => t.active).length;
+          if (track.active && visibleCount === 1) {
+            showMessage("At least one staff must remain visible.", trackItem);
+            return;
           }
+          // Toggle active state
+          track.active = !track.active;
+          trackItem.classList.toggle("active", track.active);
+          api.changeTrackMute([track],!track.active)
 
-          if (activeTracks.length > 0) {
-            api.renderTracks(activeTracks);
-          } else{
-            api.renderTracks([]);
-          }
+          // Render tracks in order by index
+          const orderedActiveTracks = score.tracks.filter(t => t.active);
+
+          api.renderTracks(orderedActiveTracks);
         };
-
         return trackItem;
       }
+
+      function updateTrackVolumes(score) {
+        score.tracks.forEach(track => {
+          track.playbackInfo.channels.forEach(ch => {
+            api.player.setChannelVolume(ch.index, track.active ? 1 : 0);
+          });
+        });
+      }
+
+      function showMessage(message, target) {
+        const popup = document.createElement("div");
+        popup.className = "at-popup";
+        popup.innerText = message;
+
+        // position near clicked track
+        const rect = target.getBoundingClientRect();
+        popup.style.top = rect.bottom + window.scrollY + 8 + "px";
+        popup.style.left = rect.left + "px";
+
+        document.body.appendChild(popup);
+
+        // fade out and remove after 1.5s
+        setTimeout(() => { popup.style.opacity = "0"; }, 1000);
+        setTimeout(() => { popup.remove(); }, 1500);
+      }
+
+      // create a single tooltip element
+      const tooltip = document.createElement("div");
+      tooltip.className = "at-tooltip";
+      document.body.appendChild(tooltip);
+
+      let tooltipTimer;
+      let currentTarget = null;
+
+      function attachTooltip(element, text) {
+        element.addEventListener("mouseenter", () => {
+          currentTarget = element;
+
+          tooltipTimer = setTimeout(() => {
+            const rect = currentTarget.getBoundingClientRect();
+            tooltip.innerText = text;
+            tooltip.style.opacity = 1;
+            tooltip.style.display = "block"; // make visible to measure height and width
+
+            const tooltipHeight = tooltip.offsetHeight;
+            const tooltipWidth = tooltip.offsetWidth;
+
+            // Determine space above and below
+            const spaceAbove = rect.top;
+            const spaceBelow = window.innerHeight - rect.bottom;
+
+            // Flip dynamically: above if possible, otherwise below
+            if (spaceAbove > tooltipHeight + 10) {
+              tooltip.style.top = rect.top + window.scrollY - tooltipHeight - 6 + "px";
+            } else {
+              tooltip.style.top = rect.bottom + window.scrollY + 6 + "px";
+            }
+
+            // Center horizontally over the button
+            tooltip.style.left = rect.left + window.scrollX + (rect.width / 2) - (tooltipWidth / 2) + "px";
+          }, 250);
+        });
+
+        element.addEventListener("mouseleave", () => {
+          clearTimeout(tooltipTimer);
+          tooltip.style.opacity = 0;
+          currentTarget = null;
+        });
+      }
+
       const trackList = wrapper.querySelector(".at-track-list");
       api.scoreLoaded.on((score) => {
         // clear items
@@ -368,12 +473,25 @@
         activeTracks = [...score.tracks];
         // generate a track item for all tracks of the score
         score.tracks.forEach((track) => {
-          const item = createTrackItem(track);
+          const item = createTrackItem(track, score);
           trackList.appendChild(item);
           item.classList.add("active");
         });
         api.renderTracks(activeTracks);
+
+        //load footer information
+        wrapper.querySelector('.at-song-title').innerText = score.title || '';
+
+        // update the browser tab title
+        if (score.title && score.title.trim() !== '') {
+          document.title = score.title + ' - AlphaTab';
+        } else {
+          // fallback to filename (if metadata missing)
+          const filename = fileParam?.replace('.mxl', '') + ' - AlphaTab' || 'AlphaTab Score';
+          document.title = filename;
+        }
       });
+      
       api.renderStarted.on(() => {
         // collect tracks being rendered
         const tracks = new Map();
@@ -391,24 +509,9 @@
         });
       });
 
-      //load title in footer - controls section
-      api.scoreLoaded.on((score) => {
-        // update the player’s footer title
-        wrapper.querySelector('.at-song-title').innerText = score.title || '';
-
-        // update the browser tab title
-        if (score.title && score.title.trim() !== '') {
-          document.title = score.title + ' - AlphaTab';
-        } else {
-          // fallback to filename (if metadata missing)
-          const filename = fileParam?.replace('.mxl', '') + ' - AlphaTab' || 'AlphaTab Score';
-          document.title = filename;
-        }
-      });
-
-
       //toggle count-in
       const countIn = wrapper.querySelector('.at-controls .at-count-in');
+      attachTooltip(countIn, "Count In");
       countIn.onclick = () => {
         countIn.classList.toggle('active');
         if (countIn.classList.contains('active')) {
@@ -420,6 +523,7 @@
 
       //toggle metronome
       const metronome = wrapper.querySelector('.at-controls .at-metronome');
+      attachTooltip(metronome, "Metronome");
       metronome.onclick = () => {
         metronome.classList.toggle('active');
         if (metronome.classList.contains('active')) {
@@ -431,20 +535,24 @@
 
       //toggle looping
       const loop = wrapper.querySelector('.at-controls .at-loop');
+      attachTooltip(loop, "Loop");
       loop.onclick = () => {
         loop.classList.toggle('active');
         api.isLooping = loop.classList.contains('active');
       };
 
       //print
-      wrapper.querySelector('.at-controls .at-print').onclick = () => {
+      const printBtn = wrapper.querySelector('.at-controls .at-print');
+      attachTooltip(printBtn, "Print Score");
+      printBtn.onclick = () => {
         api.print();
       };
 
       //zoom
-      const zoom = wrapper.querySelector('.at-controls .at-zoom select');
-      zoom.onchange = ()=>{
-        const zoomLevel = parseInt(zoom.value) / 100;
+      const zoomSlct = wrapper.querySelector('.at-controls .at-zoom select');
+      attachTooltip(zoomSlct, "Zoom");
+      zoomSlct.onchange = ()=>{
+        const zoomLevel = parseInt(zoomSlct.value) / 100;
         api.settings.display.scale = zoomLevel;
         api.updateSettings();
         api.render();
@@ -452,6 +560,7 @@
 
       //layout selector
       const layout = wrapper.querySelector('.at-controls .at-layout select');
+      attachTooltip(layout, "Layout Selector");
       layout.onchange = () => {
         switch (layout.value) {
           case 'horizontal':
@@ -474,10 +583,10 @@
       });
       api.playerReady.on(()=>{playerIndicator.style.display = 'none'});
       //play-pause buttons
-      const playPause = wrapper.querySelector(
-        ".at-controls .at-player-play-pause"
-      );
+      const playPause = wrapper.querySelector(".at-controls .at-player-play-pause");
+      attachTooltip(playPause, "Play / Pause");
       const stop = wrapper.querySelector(".at-controls .at-player-stop");
+      attachTooltip(stop, "Stop & Rewind");
       playPause.onclick = (e) => {
         if (e.target.classList.contains("disabled")) {
           return;
@@ -527,6 +636,7 @@
         songPosition.innerText =
           formatDuration(e.currentTime) + " / " + formatDuration(e.endTime);
       });
+
     </script>
   </body>
 </html>
