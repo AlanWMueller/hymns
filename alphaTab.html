@@ -237,6 +237,7 @@
     </style>
   </head>
   <body>
+    <iframe id="pdf-preload" src="" style="display:none;"></iframe>
     <div class="at-wrap">
       <div class="at-overlay">
         <div class="at-overlay-content">
@@ -331,8 +332,11 @@
 
       // get ?file=... from URL
       const params = new URLSearchParams(window.location.search);
-      const fileParam = params.get("file") || "A Beautiful Life.mxl"; //fallback
-      const fileURL = `https://alanwmueller.github.io/hymns/mxlFiles/${fileParam}`;
+      const fileParam = params.get("file") || "A Beautiful Life"; //fallback
+      const fileURL = `https://alanwmueller.github.io/hymns/mxlFiles/${fileParam}.mxl`;
+      const printURL = `https://alanwmueller.github.io/hymns/pdfFiles/${fileParam}.pdf`;
+      const pdfIframe = document.getElementById("pdf-preload");
+      pdfIframe.src = printURL
       //update page title (not used in Odoo embedd)
       document.title = fileParam.replace('.mxl', '');
       // initialize alphatab
@@ -545,7 +549,31 @@
       const printBtn = wrapper.querySelector('.at-controls .at-print');
       attachTooltip(printBtn, "Print Score");
       printBtn.onclick = () => {
-        api.print();
+        /**const printWindow = window.open(printURL, '_blank');
+        printWindow.onload = () => {
+          printWindow.focus();
+          printWindow.print();
+        };*/
+        const printWindow = window.open('', 'PrintWindow', 'width=800,height=1060');
+  
+        printWindow.document.write(`
+          <html>
+            <head>
+              <title>Print</title>
+              <style>body, html {margin:0; padding:0; height:100%;}</style>
+            </head>
+            <body>
+              <iframe src="${pdfIframe.src}" frameborder="0" style="width:100%;height:100%;"></iframe>
+            </body>
+          </html>
+        `);
+        
+        printWindow.document.close();
+        printWindow.focus();
+
+        setTimeout(() => {
+          printWindow.print();
+        }, 500); // small delay for the PDF to render
       };
 
       //zoom
